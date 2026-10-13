@@ -4,7 +4,8 @@
    tambahan.js - dimuat SETELAH script.js
    Menambah dua hal tanpa mengubah script.js:
    1. Rencana pemulihan (risiko sedang dan tinggi)
-   2. Kirim hasil ke peneliti (opsional, dengan persetujuan)
+   2. Kirim hasil ke peneliti (opsional). Persetujuan dicentang di
+      awal formulir; kalau dicentang, hasil terkirim otomatis.
    ========================================================= */
 
 const TAMBAHAN = {
@@ -93,6 +94,22 @@ const RECOVERY = {
   const result = document.getElementById('result');
   if (!result) return;
 
+  /* ----- Persetujuan di awal formulir (di bawah pilihan cabang olahraga) ----- */
+
+  const cabang = document.getElementById('cabang');
+  if (cabang && TAMBAHAN.endpoint) {
+    const field = cabang.closest('.field');
+    if (field) {
+      field.insertAdjacentHTML('afterend',
+        '<div style="margin-bottom:24px">' +
+          '<label class="consent"><input type="checkbox" id="consent-awal"> ' +
+          '<span><strong>Kirim hasilku ke peneliti (opsional).</strong> Jika dicentang, hasilmu otomatis terkirim ' +
+          'begitu hasil tampil. Yang dikirim: nama panggilan, cabang olahraga, waktu, persentase, tingkat risiko, ' +
+          'dan poin tiap pertanyaan. Jika kamu di bawah 18 tahun, beri tahu orang tua atau guru dulu.</span></label>' +
+        '</div>');
+    }
+  }
+
   function collect() {
     const form = document.getElementById('wizard');
     const ans = {};
@@ -121,6 +138,7 @@ const RECOVERY = {
     '</div>';
   }
 
+  /* Kotak untuk yang TIDAK mencentang di awal: boleh memilih kirim setelah lihat hasil */
   const shareHTML =
     '<div class="result-sec share-box">' +
       '<h3>Bantu penelitian (opsional)</h3>' +
@@ -131,31 +149,17 @@ const RECOVERY = {
       '<p class="share-msg" id="share-msg" role="status"></p>' +
     '</div>';
 
-  function tambah() {
-    const actions = result.querySelector('.result-actions');
-    if (result.hidden || !actions) { delete result.dataset.tambahan; return; }
-    if (result.dataset.tambahan) return;
-    result.dataset.tambahan = '1';
-
-    const ans = collect();
-    if (!ans) return;
-    const r = scoreAnswers(ans);
-    actions.insertAdjacentHTML('beforebegin',
-      recoveryHTML(r.level) + (TAMBAHAN.endpoint ? shareHTML : ''));
-  }
-
-  new MutationObserver(tambah).observe(result, { childList: true });
+  /* Kotak untuk yang mencentang di awal: terkirim otomatis */
+  const autoHTML =
+    '<div class="result-sec share-box">' +
+      '<h3>Pengiriman ke peneliti</h3>' +
+      '<p class="share-msg" id="share-msg" role="status">Mengirim...</p>' +
+      '<button type="button" class="btn btn-ghost" data-action="send" hidden>Coba kirim lagi</button>' +
+    '</div>';
 
   let terkirim = false;
 
-  result.addEventListener('click', e => {
-    const btn = e.target.closest('button[data-action="send"]');
-    if (!btn || terkirim) return;
-    const msg = document.getElementById('share-msg');
-    if (!document.getElementById('consent').checked) {
-      msg.textContent = 'Centang persetujuan dulu kalau kamu ingin mengirim hasil.';
-      return;
-    }
+  function kirim(msg, btn) {
     const ans = collect();
     if (!ans) return;
     const r = scoreAnswers(ans);
@@ -170,7 +174,7 @@ const RECOVERY = {
     };
     r.items.forEach(i => { payload.jawaban[i.q.id] = i.pts; });
 
-    btn.disabled = true;
+    if (btn) btn.disabled = true;
     msg.textContent = 'Mengirim...';
     fetch(TAMBAHAN.endpoint, {
       method: 'POST',
@@ -179,12 +183,48 @@ const RECOVERY = {
       body: JSON.stringify(payload)
     }).then(() => {
       terkirim = true;
-      btn.textContent = 'Terkirim';
-      msg.textContent = 'Terima kasih, hasilmu sudah dikirim.';
+      if (btn) btn.hidden = true;
+      msg.textContent = 'Terima kasih, hasilmu sudah dikirim ke peneliti.';
     }).catch(() => {
-      btn.disabled = false;
+      if (btn) { btn.disabled = false; btn.hidden = false; }
       msg.textContent = 'Gagal mengirim. Cek koneksi internet lalu coba lagi.';
     });
+  }
+
+  function tambah() {
+    const actions = result.querySelector('.result-actions');
+    if (result.hidden || !actions) { delete result.dataset.tambahan; return; }
+    if (result.dataset.tambahan) return;
+    result.dataset.tambahan = '1';
+
+    const ans = collect();
+    if (!ans) return;
+    const r = scoreAnswers(ans);
+
+    const awal = document.getElementById('consent-awal');
+    const otomatis = Boolean(TAMBAHAN.endpoint && awal && awal.checked);
+    const kotak = otomatis ? autoHTML : (TAMBAHAN.endpoint ? shareHTML : '');
+
+    actions.insertAdjacentHTML('beforebegin', recoveryHTML(r.level) + kotak);
+
+    if (otomatis && !terkirim) {
+      kirim(document.getElementById('share-msg'), result.querySelector('[data-action="send"]'));
+    }
+  }
+
+  new MutationObserver(tambah).observe(result, { childList: true });
+
+  // Tombol kirim (manual atau "coba kirim lagi")
+  result.addEventListener('click', e => {
+    const btn = e.target.closest('button[data-action="send"]');
+    if (!btn || terkirim) return;
+    const msg = document.getElementById('share-msg');
+    const consent = document.getElementById('consent');   // hanya ada di kotak manual
+    if (consent && !consent.checked) {
+      msg.textContent = 'Centang persetujuan dulu kalau kamu ingin mengirim hasil.';
+      return;
+    }
+    kirim(msg, btn);
   });
 
   // Isi ulang: izinkan kirim lagi untuk hasil berikutnya
